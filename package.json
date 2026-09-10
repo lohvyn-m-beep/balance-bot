@@ -1,0 +1,12 @@
+{
+  "name": "balance-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.16.0",
+    "@sparticuz/chromium-min": "^138.0.2"
+  }
+}
