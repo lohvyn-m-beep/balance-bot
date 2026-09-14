@@ -2,71 +2,164 @@ import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
 const NG_URL = "https://upc.ng-club.com/en/auth/login";
+const LIMIT = 10000;
 
 async function getBalances() {
   const browser = await puppeteer.launch({
     args: chromium.args,
     defaultViewport: { width: 1280, height: 900 },
     executablePath: await chromium.executablePath(),
-    headless: true,
+    headless: true
   });
 
   try {
     const page = await browser.newPage();
 
-    // Відкриваємо сторінку входу
+    // Відкриваємо NG-CLUB
     await page.goto(NG_URL, {
       waitUntil: "networkidle2",
-      timeout: 30000,
+      timeout: 30000
     });
 
-    // Логін
-    const loginInput = await page.$(
-      'input[type="text"], input[type="email"], input:not([type])'
-    );
+    // Знаходимо поля логіну
+    const inputs = await page.$$("input");
 
-    const passwordInput = await page.$('input[type="password"]');
+    let loginInput = null;
+    let passwordInput = null;
+
+    for (const input of inputs) {
+      const type = await input.evaluate(el => el.type);
+
+      if (type === "password") {
+        passwordInput = input;
+      } else if (!loginInput && (type === "text" || type === "email")) {
+        loginInput = input;
+      }
+    }
 
     if (!loginInput || !passwordInput) {
-      throw new Error("Не знайдено поля логіну або пароля");
+      throw new Error("Не знайдено поля Login / Password");
     }
 
-    await loginInput.type(process.env.NG_CLUB_LOGIN);
-    await passwordInput.type(process.env.NG_CLUB_PASSWORD);
+    await loginInput.fill(process.env.NG_CLUB_LOGIN);
+    await passwordInput.fill(process.env.NG_CLUB_PASSWORD);
 
     // Натискаємо кнопку входу
-    const submitButton = await page.$(
-      'button[type="submit"], input[type="submit"], button'
-    );
+    const submit =
+      await page.$('button[type="submit"]') ||
+      await page.$('input[type="submit"]');
 
-    if (submitButton) {
-      await submitButton.click();
-    } else {
-      await passwordInput.press("Enter");
+    if (!submit) {
+      throw new Error("Не знайдено кнопку входу");
     }
 
-    // Чекаємо після входу
-    await new Promise((resolve) => setTimeout(resolve, 4000));
+    await Promise.all([
+      page.waitForNavigation({
+        waitUntil: "networkidle2",
+        timeout: 30000
+      }).catch(() => {}),
+      submit.click()
+    ]);
 
-    // Збираємо текст сторінки
-    const data = await page.evaluate(() => {
-      const elements = [...document.querySelectorAll(".grid_3")];
+    // Даємо сторінці час завантажити дані
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-      return elements
-        .map((el) => ({
-          text: el.innerText.trim(),
-          value: el.innerText.trim().replace(/\s+/g, " "),
-        }))
-        .filter((x) => x.text);
+    // Отримуємо всі числові значення з .grid_3
+    const gridValues = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll(".grid_3"))
+        .map(el => el.textContent.trim())
+        .filter(text => text)
+        .map(text => {
+          const match = text.replace(/\s/g, "").match(
+            /-?\d+(?:[.,]\d{1,2})?/
+          );
+
+          if (!match) return null;
+
+          return {
+            text,
+            value: parseFloat(match[0].replace(",", "."))
+          };
+        })
+        .filter(Boolean);
     });
 
-    return data;
+    // Шукаємо конкретний рахунок 2768
+    const account2768 = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll("*"));
+
+      const idElement = all.find(el => {
+        const text = el.textContent?.trim();
+        return text === "2768";
+      });
+
+      if (!idElement) return null;
+
+      let parent = idElement;
+
+      for (let i = 0; i < 6 && parent; i++) {
+        const text = parent.innerText || "";
+
+        if (
+          text.includes("2768") &&
+          (
+            text.includes("Грошовий рахунок") ||
+            text.includes("Cash") ||
+            text.includes("Account")
+          )
+        ) {
+          return text;
+        }
+
+        parent = parent.parentElement;
+      }
+
+      return idElement.parentElement?.innerText || null;
+    });
+
+    let balance2768 = null;
+
+    if (account2768) {
+      const numbers = account2768
+        .replace(/\s/g, " ")
+        .match(/\d+(?:[.,]\d{1,2})?/g);
+
+      if (numbers) {
+        const parsed = numbers
+          .map(n => parseFloat(n.replace(",", ".")))
+          .filter(n => !isNaN(n));
+
+        // Вибираємо найбільш схоже на баланс число,
+        // ігноруючи ID 2768
+        const candidates = parsed.filter(n => n !== 2768);
+
+        if (candidates.length) {
+          balance2768 = candidates[candidates.length - 1];
+        }
+      }
+    }
+
+    // Якщо баланс 2768 не знайшовся через структуру сторінки,
+    // повертаємо всі знайдені значення для діагностики
+    return {
+      balance2768,
+      accountText: account2768,
+      all: gridValues
+    };
+
   } finally {
     await browser.close();
   }
 }
 
-async function telegram(method, body) {
+function formatMoney(value) {
+  return Number(value).toLocaleString("uk-UA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+async function telegram(method, data) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   const response = await fetch(
@@ -74,100 +167,139 @@ async function telegram(method, body) {
     {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(data)
     }
   );
 
   return response.json();
 }
 
-export default async function handler(req, res) {
-  // Перевірка, що функція працює
-  if (req.method === "GET") {
-    return res.status(200).json({
-      ok: true,
-      message: "NG Club Balance Bot is working",
-    });
-  }
-
+async function sendBalance(chatId) {
   try {
-    const update = req.body;
+    const result = await getBalances();
 
-    if (!update) {
-      return res.status(200).json({ ok: true });
-    }
+    let message = "💰 <b>NG-CLUB — поточні дані</b>\n\n";
 
-    // Звичайне повідомлення
-    if (update.message) {
-      const chatId = update.message.chat.id;
-      const text = update.message.text || "";
+    if (result.balance2768 !== null) {
+      const balance = result.balance2768;
 
-      if (text === "/start") {
-        await telegram("sendMessage", {
-          chat_id: chatId,
-          text:
-            "🤖 NG Club Balance Bot\n\n" +
-            "Натисни кнопку, щоб отримати актуальні дані з NG-CLUB.",
-          reply_markup: {
-            keyboard: [
-              [
-                {
-                  text: "ОТРИМАТИ ПОТОЧНІ ДАНІ ДЛЯ ВСІХ",
-                },
-              ],
-            ],
-            resize_keyboard: true,
-          },
-        });
+      message +=
+        `🏦 <b>2768 — Грошовий рахунок</b>\n` +
+        `💵 Баланс: <b>${formatMoney(balance)} грн</b>\n`;
 
-        return res.status(200).json({ ok: true });
+      if (balance <= LIMIT) {
+        message +=
+          `\n🚨 <b>УВАГА!</b>\n` +
+          `Баланс нижче порогу ${formatMoney(LIMIT)} грн.`;
+      } else {
+        message +=
+          `\n✅ Баланс вище порогу ${formatMoney(LIMIT)} грн.`;
       }
+    } else {
+      message +=
+        "⚠️ Не вдалося однозначно визначити баланс рахунку 2768.\n\n";
 
-      if (text === "ОТРИМАТИ ПОТОЧНІ ДАНІ ДЛЯ ВСІХ") {
-        await telegram("sendMessage", {
-          chat_id: chatId,
-          text: "⏳ Отримую актуальні дані з NG-CLUB...",
-        });
+      message += "Знайдені значення:\n";
 
-        const balances = await getBalances();
-
-        let result = "📊 Актуальні дані NG-CLUB\n\n";
-
-        if (!balances.length) {
-          result += "⚠️ Дані не знайдені.";
-        } else {
-          result += balances
-            .map((item) => `• ${item.value}`)
-            .join("\n");
-        }
-
-        await telegram("sendMessage", {
-          chat_id: chatId,
-          text: result,
-        });
-
-        return res.status(200).json({ ok: true });
-      }
-    }
-
-    return res.status(200).json({ ok: true });
-  } catch (error) {
-    console.error(error);
-
-    if (update?.message?.chat?.id) {
-      await telegram("sendMessage", {
-        chat_id: update.message.chat.id,
-        text:
-          "❌ Помилка під час отримання даних.\n\n" +
-          "Подивись логи Vercel для деталей.",
+      result.all.forEach((item, index) => {
+        message += `${index + 1}. ${item.text}\n`;
       });
     }
 
+    const keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: "🔄 Отримати поточні дані для всіх",
+            callback_data: "get_all"
+          }
+        ]
+      ]
+    };
+
+    return await telegram("sendMessage", {
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML",
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error("BALANCE ERROR:", error);
+
+    return await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "❌ <b>Не вдалося отримати дані NG-CLUB.</b>\n\n" +
+        "Помилка: " +
+        String(error.message).slice(0, 500),
+      parse_mode: "HTML"
+    });
+  }
+}
+
+export default async function handler(req, res) {
+  try {
+    if (req.method !== "POST") {
+      return res.status(200).json({
+        ok: true,
+        message: "NG Club Balance Bot is working"
+      });
+    }
+
+    const update = req.body;
+
+    // /start
+    if (update?.message?.text === "/start") {
+      const chatId = update.message.chat.id;
+
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text:
+          "👋 <b>NG Club Balance</b>\n\n" +
+          "Натисни кнопку нижче, щоб отримати актуальні дані з NG-CLUB.",
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "🔄 Отримати поточні дані для всіх",
+                callback_data: "get_all"
+              }
+            ]
+          ]
+        }
+      });
+
+      return res.status(200).json({ ok: true });
+    }
+
+    // Натискання кнопки
+    if (update?.callback_query) {
+      const callback = update.callback_query;
+
+      await telegram("answerCallbackQuery", {
+        callback_query_id: callback.id,
+        text: "Отримую актуальні дані..."
+      });
+
+      if (callback.data === "get_all") {
+        await sendBalance(callback.message.chat.id);
+      }
+
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(200).json({ ok: true });
+
+  } catch (error) {
+    console.error("TELEGRAM HANDLER ERROR:", error);
+
     return res.status(200).json({
       ok: false,
-      error: error.message,
+      error: error.message
     });
   }
 }
