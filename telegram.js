@@ -250,7 +250,19 @@ export default async function handler(req, res) {
     }
 
     const update = req.body;
+if (req.method !== "POST") {
+  const webhookUrl =
+    "https://balance-bot-three.vercel.app/api/telegram";
 
+  const result = await telegram("setWebhook", {
+    url: webhookUrl
+  });
+
+  return res.status(200).json({
+    ok: true,
+    webhook: result
+  });
+}
     // /start
     if (update?.message?.text === "/start") {
       const chatId = update.message.chat.id;
