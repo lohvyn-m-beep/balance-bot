@@ -1,5 +1,5 @@
-import puppeteer from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+const puppeteer = require("puppeteer-core");
+const chromium = require("@sparticuz/chromium");
 
 const NG_URL = "https://upc.ng-club.com/en/auth/login";
 
