@@ -254,14 +254,16 @@ if (req.method !== "POST") {
   const webhookUrl =
     "https://balance-bot-three.vercel.app/api/telegram";
 
-  const result = await telegram("setWebhook", {
-    url: webhookUrl
-  });
+  const setResult = await telegram("setWebhook", {
+  url: webhookUrl
+});
 
-  return res.status(200).json({
-    ok: true,
-    webhook: result
-  });
+const infoResult = await telegram("getWebhookInfo", {});
+
+return res.status(200).json({
+  setWebhook: setResult,
+  webhookInfo: infoResult
+});
 }
     // /start
     if (update?.message?.text === "/start") {
