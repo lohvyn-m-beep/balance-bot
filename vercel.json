@@ -4,21 +4,12 @@
     {
       "src": "telegram.js",
       "use": "@vercel/node"
-    },
-    {
-      "src": "setup.js",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/telegram",
       "dest": "telegram.js"
-    },
-    {
-      "src": "/api/setup",
-      "dest": "setup.js"
     }
   ]
-}
 }
