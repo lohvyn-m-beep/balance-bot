@@ -44,41 +44,32 @@ async function loginToNgClub(login, password) {
     );
   }
 
-  const browser =
-    await puppeteer.launch({
+  const browser = await puppeteer.launch({
+    args: chromium.args,
 
-      args: chromium.args,
+    defaultViewport: {
+      width: 1280,
+      height: 900
+    },
 
-      defaultViewport: {
-        width: 1280,
-        height: 900
-      },
+    executablePath:
+      await chromium.executablePath(),
 
-      executablePath:
-        await chromium.executablePath(),
-
-      headless: true
-    });
+    headless: true
+  });
 
   try {
 
-    const page =
-      await browser.newPage();
+    const page = await browser.newPage();
 
-    console.log(
-      "Opening NG-CLUB..."
-    );
+    console.log("Opening NG-CLUB...");
 
-    await page.goto(
-      NG_URL,
-      {
-        waitUntil: "networkidle2",
-        timeout: 30000
-      }
-    );
+    await page.goto(NG_URL, {
+      waitUntil: "networkidle2",
+      timeout: 30000
+    });
 
-    const inputs =
-      await page.$$("input");
+    const inputs = await page.$$("input");
 
     let loginInput = null;
     let passwordInput = null;
@@ -105,22 +96,14 @@ async function loginToNgClub(login, password) {
       }
     }
 
-    if (
-      !loginInput ||
-      !passwordInput
-    ) {
+    if (!loginInput || !passwordInput) {
       throw new Error(
         "Не знайдено поля Login / Password"
       );
     }
 
-    await loginInput.type(
-      login
-    );
-
-    await passwordInput.type(
-      password
-    );
+    await loginInput.type(login);
+    await passwordInput.type(password);
 
     const submit =
       await page.$(
@@ -137,7 +120,6 @@ async function loginToNgClub(login, password) {
     }
 
     await Promise.all([
-
       page.waitForNavigation({
         waitUntil: "networkidle2",
         timeout: 30000
@@ -147,10 +129,7 @@ async function loginToNgClub(login, password) {
     ]);
 
     await new Promise(
-      resolve => setTimeout(
-        resolve,
-        4000
-      )
+      resolve => setTimeout(resolve, 4000)
     );
 
     console.log(
@@ -173,107 +152,57 @@ async function loginToNgClub(login, password) {
 
 
 // =====================================================
-// ОТРИМАННЯ ТЕКСТУ СТОРІНКИ
+// ПОЛУЧЕНИЕ БАЛАНСОВ
 // =====================================================
 
-async function getPageLines(page) {
+async function readAccounts(page, accounts) {
 
   const pageText =
     await page.evaluate(() => {
-
-      return (
-        document.body.innerText ||
-        ""
-      );
-
+      return document.body.innerText || "";
     });
 
   console.log(
     "PAGE TEXT:",
-    pageText.slice(
-      0,
-      15000
-    )
+    pageText.slice(0, 15000)
   );
 
-  return pageText
-    .split("\n")
-    .map(
-      x => x.trim()
-    )
-    .filter(Boolean);
-}
-
-
-// =====================================================
-// ПОШУК БАЛАНСУ
-// =====================================================
-
-function extractMoney(text) {
-
-  const matches =
-    text.match(
-      /-?\d[\d\s]*[.,]\d{1,2}/g
-    ) || [];
-
-  return matches
-    .map(value =>
-      parseFloat(
-        value
-          .replace(/\s/g, "")
-          .replace(",", ".")
-      )
-    )
-    .filter(
-      value => !isNaN(value)
-    );
-}
-
-
-// =====================================================
-// ЧИТАННЯ РАХУНКІВ
-// =====================================================
-
-async function readAccounts(
-  page,
-  accounts
-) {
-
   const lines =
-    await getPageLines(page);
+    pageText
+      .split("\n")
+      .map(x => x.trim())
+      .filter(Boolean);
 
   const results = {};
 
-  for (
-    const account of accounts
-  ) {
+  for (const account of accounts) {
 
     let balance = null;
 
-    console.log(
-      "SEARCH ACCOUNT:",
-      account.id
-    );
-
     /*
-      Спочатку шукаємо точний ID
+      Ищем ID конкретного счёта.
     */
 
     const index =
       lines.findIndex(
-        line =>
-          line === account.id
+        line => line === account.id
       );
 
     if (index !== -1) {
 
       /*
-        Беремо достатньо великий
-        фрагмент ПОСЛЕ ID.
+        Для NG-CLUB после ID идут
+        название, кредит и баланс.
 
-        Важливо:
-        не беремо дані наступного
-        рахунку.
+        Например:
+
+        2769
+        Грошовий рахунок
+        0.00
+        102580.30
+
+        Поэтому берём числа,
+        относящиеся к этому счёту.
       */
 
       const nearby =
@@ -281,7 +210,7 @@ async function readAccounts(
           index,
           Math.min(
             lines.length,
-            index + 7
+            index + 5
           )
         );
 
@@ -292,29 +221,28 @@ async function readAccounts(
 
       const moneyValues = [];
 
-      for (
-        const line of nearby
-      ) {
+      for (const line of nearby) {
 
-        const values =
-          extractMoney(line);
+        const matches =
+          line.match(
+            /-?\d[\d\s]*[.,]\d{1,2}/g
+          );
 
-        for (
-          const value of values
-        ) {
+        if (!matches) {
+          continue;
+        }
 
-          /*
-            Сам ID рахунку не враховуємо.
-          */
+        for (const value of matches) {
 
-          if (
-            value !==
-            Number(account.id)
-          ) {
-
-            moneyValues.push(
+          const number =
+            parseFloat(
               value
+                .replace(/\s/g, "")
+                .replace(",", ".")
             );
+
+          if (!isNaN(number)) {
+            moneyValues.push(number);
           }
         }
       }
@@ -325,22 +253,11 @@ async function readAccounts(
       );
 
       /*
-        Для NG-CLUB структура,
-        яку ми вже побачили:
-
-        ID
-        Назва
-        Кредит
-        Баланс
-
-        Тобто:
-        [0] кредит
-        [1] баланс
+        Первое число = кредит.
+        Второе число = баланс.
       */
 
-      if (
-        moneyValues.length >= 2
-      ) {
+      if (moneyValues.length >= 2) {
 
         balance =
           moneyValues[1];
@@ -349,10 +266,6 @@ async function readAccounts(
         moneyValues.length === 1
       ) {
 
-        /*
-          Резервний варіант
-        */
-
         balance =
           moneyValues[0];
       }
@@ -360,13 +273,10 @@ async function readAccounts(
 
 
     /*
-      Другий спосіб:
-      шукаємо назву рахунку.
+      Резервный поиск по названию.
     */
 
-    if (
-      balance === null
-    ) {
+    if (balance === null) {
 
       const nameIndex =
         lines.findIndex(
@@ -376,45 +286,41 @@ async function readAccounts(
             )
         );
 
-      if (
-        nameIndex !== -1
-      ) {
+      if (nameIndex !== -1) {
 
         const nearby =
           lines.slice(
             nameIndex,
             Math.min(
               lines.length,
-              nameIndex + 6
+              nameIndex + 5
             )
           );
 
-        console.log(
-          `NAME SEARCH ${account.id}:`,
-          nearby
-        );
-
         const moneyValues = [];
 
-        for (
-          const line of nearby
-        ) {
+        for (const line of nearby) {
 
-          const values =
-            extractMoney(line);
+          const matches =
+            line.match(
+              /-?\d[\d\s]*[.,]\d{1,2}/g
+            );
 
-          for (
-            const value of values
-          ) {
+          if (!matches) {
+            continue;
+          }
 
-            if (
-              value !==
-              Number(account.id)
-            ) {
+          for (const value of matches) {
 
-              moneyValues.push(
+            const number =
+              parseFloat(
                 value
+                  .replace(/\s/g, "")
+                  .replace(",", ".")
               );
+
+            if (!isNaN(number)) {
+              moneyValues.push(number);
             }
           }
         }
@@ -484,30 +390,16 @@ async function getBalancesForCabinet(
 
 
 // =====================================================
-// ПОЛУЧЕНИЕ ВСЕХ ТРЁХ СЧЕТОВ
+// ПОЛУЧЕНИЕ ВСЕХ 3 СЧЕТОВ
 // =====================================================
 
 async function getAllBalances() {
-
-  /*
-    КАБИНЕТ №1
-
-    2768
-  */
 
   const cabinet1 =
     ACCOUNTS.filter(
       account =>
         account.id === "2768"
     );
-
-
-  /*
-    КАБИНЕТ №2
-
-    2769
-    5346
-  */
 
   const cabinet2 =
     ACCOUNTS.filter(
@@ -541,14 +433,12 @@ async function getAllBalances() {
 
 
 // =====================================================
-// ФОРМАТ ГРОШЕЙ
+// ФОРМАТ ДЕНЕГ
 // =====================================================
 
 function formatMoney(value) {
 
-  return Number(
-    value
-  ).toLocaleString(
+  return Number(value).toLocaleString(
     "uk-UA",
     {
       minimumFractionDigits: 2,
@@ -559,65 +449,19 @@ function formatMoney(value) {
 
 
 // =====================================================
-// TELEGRAM
+// ПОЛНОЕ СООБЩЕНИЕ
 // =====================================================
 
-async function telegram(
-  method,
-  data
-) {
-
-  const token =
-    process.env.TELEGRAM_BOT_TOKEN;
-
-  if (!token) {
-
-    throw new Error(
-      "TELEGRAM_BOT_TOKEN не налаштований"
-    );
-  }
-
-  const response =
-    await fetch(
-      `https://api.telegram.org/bot${token}/${method}`,
-      {
-
-        method: "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
-
-        body:
-          JSON.stringify(data)
-      }
-    );
-
-  return response.json();
-}
-
-
-// =====================================================
-// ПОКАЗАТЬ ВСЕ БАЛАНСЫ
-// =====================================================
-
-function buildFullMessage(
-  balances
-) {
+function buildMessage(balances) {
 
   let message =
     "💰 <b>NG-CLUB — поточні дані</b>\n\n";
 
 
-  for (
-    const account of ACCOUNTS
-  ) {
+  for (const account of ACCOUNTS) {
 
     const balance =
-      balances[
-        account.id
-      ];
+      balances[account.id];
 
 
     message +=
@@ -644,8 +488,7 @@ function buildFullMessage(
 
 
     if (
-      balance <=
-      account.limit
+      balance <= account.limit
     ) {
 
       message +=
@@ -667,127 +510,45 @@ function buildFullMessage(
 
 
 // =====================================================
-// ПРОВЕРКА ИЗМЕНЕНИЙ
+// TELEGRAM API
 // =====================================================
 
-function buildChangesMessage(
-  oldBalances,
-  newBalances
+async function telegram(
+  method,
+  data
 ) {
 
-  let message =
-    "🔔 <b>NG-CLUB — зміна балансу</b>\n\n";
-
-  let hasChanges = false;
+  const token =
+    process.env.TELEGRAM_BOT_TOKEN;
 
 
-  for (
-    const account of ACCOUNTS
-  ) {
+  if (!token) {
 
-    const oldBalance =
-      oldBalances[
-        account.id
-      ];
-
-    const newBalance =
-      newBalances[
-        account.id
-      ];
-
-
-    if (
-      newBalance === null ||
-      newBalance === undefined
-    ) {
-
-      continue;
-    }
-
-
-    /*
-      Первичная проверка:
-
-      если старого значения
-      нет — просто запоминаем,
-      но НЕ отправляем уведомление.
-    */
-
-    if (
-      oldBalance === null ||
-      oldBalance === undefined
-    ) {
-
-      continue;
-    }
-
-
-    if (
-      Number(oldBalance) ===
-      Number(newBalance)
-    ) {
-
-      continue;
-    }
-
-
-    hasChanges = true;
-
-
-    const difference =
-      Number(newBalance) -
-      Number(oldBalance);
-
-
-    const sign =
-      difference > 0
-        ? "+"
-        : "";
-
-
-    const arrow =
-      difference > 0
-        ? "📈"
-        : "📉";
-
-
-    message +=
-      `🏦 <b>${account.id} — ${account.name}</b>\n`;
-
-    message +=
-      `Было: ${formatMoney(oldBalance)} грн\n`;
-
-    message +=
-      `Стало: <b>${formatMoney(newBalance)} грн</b>\n`;
-
-    message +=
-      `${arrow} Изменение: ${sign}${formatMoney(difference)} грн\n`;
-
-
-    /*
-      Проверяем лимит
-    */
-
-    if (
-      newBalance <=
-      account.limit
-    ) {
-
-      message +=
-        `🚨 <b>НИЖЧЕ ЛІМІТУ ${formatMoney(account.limit)} грн</b>\n`;
-    }
-
-
-    message += "\n";
+    throw new Error(
+      "TELEGRAM_BOT_TOKEN не налаштований"
+    );
   }
 
 
-  if (!hasChanges) {
-    return null;
-  }
+  const response =
+    await fetch(
+      `https://api.telegram.org/bot${token}/${method}`,
+      {
+
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify(data)
+      }
+    );
 
 
-  return message;
+  return response.json();
 }
 
 
@@ -795,18 +556,27 @@ function buildChangesMessage(
 // ОТПРАВКА БАЛАНСОВ
 // =====================================================
 
-async function sendBalance(
-  chatId
-) {
+async function sendBalance(chatId) {
 
   try {
+
+    console.log(
+      "Getting all balances..."
+    );
+
 
     const balances =
       await getAllBalances();
 
 
+    console.log(
+      "ALL BALANCES:",
+      balances
+    );
+
+
     const message =
-      buildFullMessage(
+      buildMessage(
         balances
       );
 
@@ -818,13 +588,11 @@ async function sendBalance(
         [
 
           {
-
             text:
               "🔄 Отримати поточні дані для всіх",
 
             callback_data:
               "get_all"
-
           }
 
         ]
@@ -889,7 +657,7 @@ async function sendBalance(
 
 
 // =====================================================
-// WEBHOOK
+// ОСНОВНОЙ HANDLER
 // =====================================================
 
 export default async function handler(
@@ -900,7 +668,48 @@ export default async function handler(
   try {
 
     /*
-      POST = Telegram
+      ==========================================
+      CRON-JOB.ORG
+
+      URL:
+
+      /api/telegram?cron=1
+
+      При таком запросе бот
+      отправляет текущие балансы.
+      ==========================================
+    */
+
+    if (
+      req.method === "GET" &&
+      req.query?.cron === "1"
+    ) {
+
+      console.log(
+        "CRON REQUEST"
+      );
+
+
+      await sendBalance(
+        process.env.TELEGRAM_CHAT_ID
+      );
+
+
+      return res.status(200).json({
+
+        ok: true,
+
+        message:
+          "Баланс отправлен в Telegram"
+
+      });
+    }
+
+
+    /*
+      ==========================================
+      TELEGRAM WEBHOOK
+      ==========================================
     */
 
     if (
@@ -1020,46 +829,52 @@ export default async function handler(
 
 
     /*
-      GET = проверка webhook
+      ==========================================
+      ОБЫЧНЫЙ GET
+      ==========================================
     */
 
     if (
-      req.method !== "GET"
+      req.method === "GET"
     ) {
 
-      return res.status(405).json({
-        ok: false,
-        error: "Method not allowed"
+      const setResult =
+        await telegram(
+          "setWebhook",
+          {
+            url:
+              WEBHOOK_URL
+          }
+        );
+
+
+      const infoResult =
+        await telegram(
+          "getWebhookInfo",
+          {}
+        );
+
+
+      return res.status(200).json({
+
+        ok: true,
+
+        setWebhook:
+          setResult,
+
+        webhookInfo:
+          infoResult
+
       });
     }
 
 
-    const setResult =
-      await telegram(
-        "setWebhook",
-        {
-          url:
-            WEBHOOK_URL
-        }
-      );
+    return res.status(405).json({
 
+      ok: false,
 
-    const infoResult =
-      await telegram(
-        "getWebhookInfo",
-        {}
-      );
-
-
-    return res.status(200).json({
-
-      ok: true,
-
-      setWebhook:
-        setResult,
-
-      webhookInfo:
-        infoResult
+      error:
+        "Method not allowed"
 
     });
 
