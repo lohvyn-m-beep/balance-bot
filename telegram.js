@@ -35,7 +35,96 @@ const ACCOUNTS = [
 // ВХІД В NG-CLUB
 // ==========================================
 
-async function loginToNgClub(login, password) {
+async function readAccounts(page, accounts) {
+  const pageText = await page.evaluate(() => {
+    return document.body.innerText || "";
+  });
+
+  console.log("PAGE TEXT:", pageText.slice(0, 15000));
+
+  const lines = pageText
+    .split("\n")
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  const results = {};
+
+  for (const account of accounts) {
+    let balance = null;
+
+    const index = lines.findIndex(
+      line => line === account.id
+    );
+
+    if (index !== -1) {
+
+      const nearby = lines.slice(
+        index,
+        Math.min(lines.length, index + 8)
+      );
+
+      console.log(
+        `ACCOUNT ${account.id}:`,
+        nearby
+      );
+
+      const moneyValues = [];
+
+      for (const line of nearby) {
+
+        const matches =
+          line.match(/-?\d[\d\s]*[.,]\d{1,2}/g);
+
+        if (matches) {
+
+          for (const value of matches) {
+
+            const number = parseFloat(
+              value
+                .replace(/\s/g, "")
+                .replace(",", ".")
+            );
+
+            if (!isNaN(number)) {
+              moneyValues.push(number);
+            }
+          }
+        }
+      }
+
+      console.log(
+        `MONEY VALUES ${account.id}:`,
+        moneyValues
+      );
+
+      /*
+        Структура рахунку:
+
+        ID
+        Назва
+        Кредит
+        Баланс
+
+        Тому після ID:
+        перше число = кредит
+        друге число = баланс
+      */
+
+      if (moneyValues.length >= 2) {
+        balance = moneyValues[1];
+      }
+    }
+
+    results[account.id] = balance;
+
+    console.log(
+      `BALANCE ${account.id}:`,
+      balance
+    );
+  }
+
+  return results;
+}
 
   if (!login || !password) {
     throw new Error("Не задано логін або пароль NG-CLUB");
