@@ -50,8 +50,8 @@ async function getBalances() {
       throw new Error("Не знайдено поля Login / Password");
     }
 
-    await loginInput.fill(process.env.NG_CLUB_LOGIN);
-    await passwordInput.fill(process.env.NG_CLUB_PASSWORD);
+    loginInput.type(process.env.NG_CLUB_LOGIN);
+    await passwordInput.type(process.env.NG_CLUB_PASSWORD);
 
     // Кнопка входу
     const submit =
