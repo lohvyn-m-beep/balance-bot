@@ -65,9 +65,9 @@ async function loginToNgClub(login, password) {
     console.log("Opening NG-CLUB...");
 
     await page.goto(NG_URL, {
-      waitUntil: "domcontentloaded", timeout: 60000,
-      timeout: 30000
-    });
+  waitUntil: "domcontentloaded",
+  timeout: 60000
+});
 
     const inputs = await page.$$("input");
 
