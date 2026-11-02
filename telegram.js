@@ -65,7 +65,7 @@ async function loginToNgClub(login, password) {
     console.log("Opening NG-CLUB...");
 
     await page.goto(NG_URL, {
-      waitUntil: "networkidle2",
+      waitUntil: "domcontentloaded", timeout: 60000,
       timeout: 30000
     });
 
@@ -121,7 +121,7 @@ async function loginToNgClub(login, password) {
 
     await Promise.all([
       page.waitForNavigation({
-        waitUntil: "networkidle2",
+        waitUntil: "domcontentloaded", timeout: 60000,
         timeout: 30000
       }).catch(() => {}),
 
