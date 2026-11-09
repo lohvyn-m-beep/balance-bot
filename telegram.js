@@ -64,6 +64,28 @@ async function loginToNgClub(login, password) {
 
     console.log("Opening NG-CLUB...");
 
+console.log("=== NG-CLUB NETWORK TEST ===");
+
+try {
+  const response = await fetch(NG_URL, {
+    method: "GET",
+    signal: AbortSignal.timeout(10000)
+  });
+
+  console.log("NG-CLUB HTTP STATUS:", response.status);
+  console.log("NG-CLUB FINAL URL:", response.url);
+
+} catch (error) {
+  console.error(
+    "NG-CLUB FETCH ERROR:",
+    error.message,
+    "CAUSE:",
+    error.cause?.code || error.cause?.message || "unknown"
+  );
+}
+
+console.log("=== NETWORK TEST END ===");
+
     await page.goto(NG_URL, {
   waitUntil: "domcontentloaded",
   timeout: 60000
